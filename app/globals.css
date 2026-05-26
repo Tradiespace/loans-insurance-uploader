@@ -1,26 +1,138 @@
 @import "tailwindcss";
 
+/* ─── Design tokens ──────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces */
+  --bg:     #F2F1EE;
+  --s1:     #FFFFFF;
+  --s2:     #F7F6F4;
+  --s3:     #EFEFEC;
+  --s4:     #E8E7E3;
+
+  /* Borders */
+  --border:    rgba(0,0,0,0.07);
+  --border-md: rgba(0,0,0,0.11);
+  --border-hi: rgba(0,0,0,0.20);
+
+  /* Text */
+  --text-1: #1B1A17;
+  --text-2: #6A6960;
+  --text-3: #A09E96;
+
+  /* Amber accent (darker for light-mode contrast) */
+  --amber:    #D97706;
+  --amber-hi: #B45309;
+  --amber-lo: rgba(217,119,6,0.08);
+  --amber-md: rgba(217,119,6,0.18);
+
+  /* Green */
+  --green:    #059669;
+  --green-lo: rgba(5,150,105,0.09);
+  --green-md: rgba(5,150,105,0.20);
+
+  /* Red */
+  --red:    #DC2626;
+  --red-lo: rgba(220,38,38,0.09);
+
+  /* Blue */
+  --blue:    #2563EB;
+  --blue-lo: rgba(37,99,235,0.08);
+  --blue-md: rgba(37,99,235,0.18);
+
+  /* Radii */
+  --r-sm: 8px;
+  --r:    12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --t:    200ms;
+  --ts:   340ms;
 }
 
+/* ─── Tailwind theme map ─────────────────────────────────── */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--bg);
+  --color-foreground: var(--text-1);
+  --font-sans:    var(--font-jakarta);
+  --font-display: var(--font-outfit);
+  --font-mono:    var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* ─── Base ───────────────────────────────────────────────── */
+html, body { height: 100%; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: var(--font-jakarta), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Subtle warm dot grid */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px);
+  background-size: 26px 26px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Amber ambient bloom at top */
+body::after {
+  content: '';
+  position: fixed;
+  top: -200px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 640px;
+  height: 420px;
+  background: radial-gradient(ellipse, rgba(217,119,6,0.07) 0%, transparent 68%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ─── Animations ─────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 var(--amber-md); }
+  50%       { box-shadow: 0 0 0 18px rgba(217,119,6,0); }
+}
+
+@keyframes progress-fill {
+  from { width: 0%; }
+  to   { width: 85%; }
+}
+
+/* ─── Utilities ──────────────────────────────────────────── */
+.fade-in {
+  animation: fadeUp 0.32s cubic-bezier(0.4,0,0.2,1) forwards;
+}
+
+/* Native select: hide default arrow, add custom chevron */
+.styled-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23A09E96' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  outline: none;
+}
+
+.styled-select:focus {
+  border-color: var(--amber) !important;
+  box-shadow: 0 0 0 3px var(--amber-lo);
 }
