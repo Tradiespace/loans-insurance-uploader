@@ -12,11 +12,11 @@ import {
   Info,
   Briefcase,
   ShieldCheck,
+  Users,
   ChevronRight,
 } from "lucide-react";
 
 /* ─── Constants ──────────────────────────────────────────── */
-const WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/20973041/ujdtea8/";
 
 const FIELDS = [
   { key: "identity_email",         label: "Identity Email",         required: true,  auto: false },
@@ -29,14 +29,34 @@ const FIELDS = [
   { key: "stage_progress",         label: "Stage / Progress",       required: false, auto: false },
 ] as const;
 
-type FieldKey    = (typeof FIELDS)[number]["key"];
-type UploadType  = "loans" | "insurance";
+const CONTACT_FIELDS = [
+  { key: "email",                    label: "Email",                      required: true,  auto: false, aliases: ["email address", "email"] },
+  { key: "firstname",                label: "First Name",                 required: true,  auto: false, aliases: ["first", "first name"] },
+  { key: "lastname",                 label: "Last Name",                  required: true,  auto: false, aliases: ["last", "last name"] },
+  { key: "trade",                    label: "Trade",                      required: true,  auto: false, aliases: ["trade"] },
+  { key: "business_name",            label: "Business Name",              required: false, auto: false, aliases: ["business name", "business"] },
+  { key: "phone",                    label: "Phone",                      required: false, auto: false, aliases: ["contact number", "mobile", "mobile number", "phone number"] },
+  { key: "abn",                      label: "ABN",                        required: false, auto: false, aliases: ["abn", "abn number", "australian business number"] },
+  { key: "are_you_a_business_owner", label: "Are You A Business Owner",   required: false, auto: false, aliases: ["business owner", "owner", "are you a business owner"] },
+  { key: "business_size",            label: "Business Size",              required: false, auto: false, aliases: ["business size", "no. of employees"] },
+  { key: "how_did_you_hear_about_us",label: "How Did You Hear About Us",  required: false, auto: false, aliases: ["referral", "source", "hear about us"] },
+  { key: "location",                 label: "Location",                   required: false, auto: false, aliases: ["address", "city", "suburb"] },
+  { key: "state__territory",         label: "State / Territory",          required: false, auto: false, aliases: ["state", "territory", "region"] },
+] as const;
+
+type AnyField = { key: string; label: string; required: boolean; auto: boolean; aliases?: readonly string[]; noAutoSuggest?: boolean };
+type UploadType  = "loans" | "insurance" | "contacts";
+type DealUploadType = "loans" | "insurance";
 type UploadStatus = "idle" | "uploading" | "success" | "error";
-type Mappings    = Partial<Record<FieldKey, string>>;
+type Mappings    = Partial<Record<string, string>>;
 type DataRow     = Record<string, unknown>;
 
+function getActiveFields(uploadType: UploadType): readonly AnyField[] {
+  return uploadType === "contacts" ? CONTACT_FIELDS : FIELDS;
+}
+
 /* ─── Stage lists ────────────────────────────────────────── */
-const STAGES: Record<UploadType, string[]> = {
+const STAGES: Record<DealUploadType, string[]> = {
   loans: [
     "New Leads",
     "Qualifying",
@@ -58,13 +78,13 @@ const STAGES: Record<UploadType, string[]> = {
   ],
 };
 
-const STAGE_FALLBACK: Record<UploadType, string> = {
+const STAGE_FALLBACK: Record<DealUploadType, string> = {
   loans:     "New Leads",
   insurance: "Submitted",
 };
 
 /* ─── Stage normalisation ────────────────────────────────── */
-function normalizeStage(raw: string, uploadType: UploadType): string {
+function normalizeStage(raw: string, uploadType: DealUploadType): string {
   if (!raw?.trim()) return STAGE_FALLBACK[uploadType];
 
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
@@ -104,11 +124,17 @@ function fmtBytes(b: number): string {
   return (b / 1_048_576).toFixed(1) + " MB";
 }
 
-function autoSuggest(cols: string[]): Mappings {
+function autoSuggest(cols: string[], fields: readonly AnyField[]): Mappings {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
   const out: Mappings = {};
-  FIELDS.filter((f) => !f.auto).forEach((f) => {
+  fields.filter((f) => !f.auto && !f.noAutoSuggest).forEach((f) => {
     const fn = norm(f.label);
+    // 1. Check explicit aliases first (exact normalised match)
+    const aliasHit = f.aliases
+      ? cols.find((c) => f.aliases!.some((a) => norm(a) === norm(c)))
+      : undefined;
+    if (aliasHit) { out[f.key] = aliasHit; return; }
+    // 2. Fuzzy: label contains column or column contains label
     const hit = cols.find((c) => {
       const cn = norm(c);
       return cn === fn || cn.includes(fn) || fn.includes(cn);
@@ -186,17 +212,23 @@ function StepIndicator({ current }: { current: number }) {
 
 /* ─── TypePill ───────────────────────────────────────────── */
 function TypePill({ type }: { type: UploadType }) {
+  const styles = {
+    loans:     { bg: "var(--amber-lo)", color: "var(--amber)", border: "var(--amber-md)", label: "Loans"     },
+    insurance: { bg: "var(--blue-lo)",  color: "var(--blue)",  border: "var(--blue-md)",  label: "Insurance" },
+    contacts:  { bg: "var(--green-lo)", color: "var(--green)", border: "var(--green-md)", label: "Contacts"  },
+  } as const;
+  const s = styles[type];
   return (
     <span
       className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold uppercase"
       style={{
         letterSpacing: "0.05em",
-        background: type === "loans" ? "var(--amber-lo)" : "var(--blue-lo)",
-        color: type === "loans" ? "var(--amber)" : "var(--blue)",
-        border: `1px solid ${type === "loans" ? "var(--amber-md)" : "var(--blue-md)"}`,
+        background: s.bg,
+        color: s.color,
+        border: `1px solid ${s.border}`,
       }}
     >
-      {type === "loans" ? "Loans" : "Insurance"}
+      {s.label}
     </span>
   );
 }
@@ -326,7 +358,7 @@ function InfoBox({ children }: { children: React.ReactNode }) {
 function LandingStep({ onSelect }: { onSelect: (t: UploadType) => void }) {
   return (
     <div className="flex flex-col items-center justify-center flex-1 min-h-screen px-6 pb-20 fade-in">
-      <div className="w-full max-w-[540px] flex flex-col items-center">
+      <div className="w-full max-w-[780px] flex flex-col items-center">
         <Logo />
         <div className="mt-11 text-center">
           <h1
@@ -345,9 +377,10 @@ function LandingStep({ onSelect }: { onSelect: (t: UploadType) => void }) {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3.5 mt-9 w-full max-sm:grid-cols-1">
+        <div className="grid grid-cols-3 gap-3.5 mt-9 w-full max-sm:grid-cols-1">
           <TypeCard type="loans" onClick={() => onSelect("loans")} />
           <TypeCard type="insurance" onClick={() => onSelect("insurance")} />
+          <TypeCard type="contacts" onClick={() => onSelect("contacts")} />
         </div>
       </div>
     </div>
@@ -355,7 +388,12 @@ function LandingStep({ onSelect }: { onSelect: (t: UploadType) => void }) {
 }
 
 function TypeCard({ type, onClick }: { type: UploadType; onClick: () => void }) {
-  const isLoans = type === "loans";
+  const config = {
+    loans:     { accent: "var(--amber)", shadow: "rgba(217,119,6,0.10)",  icon: <Briefcase size={22} style={{ color: "var(--amber)" }} />, title: "Loans",     desc: "Import loan leads and applications for the loans pipeline." },
+    insurance: { accent: "var(--blue)",  shadow: "rgba(37,99,235,0.10)",  icon: <ShieldCheck size={22} style={{ color: "var(--blue)" }} />,  title: "Insurance", desc: "Import insurance prospects and policy holders."              },
+    contacts:  { accent: "var(--green)", shadow: "rgba(5,150,105,0.10)",  icon: <Users size={22} style={{ color: "var(--green)" }} />,        title: "Contacts",  desc: "Find HubSpot contacts by email and update their fields."    },
+  } as const;
+  const c = config[type];
   return (
     <button
       onClick={onClick}
@@ -368,10 +406,8 @@ function TypeCard({ type, onClick }: { type: UploadType; onClick: () => void }) 
       onMouseEnter={(e) => {
         const el = e.currentTarget;
         el.style.transform = "translateY(-3px)";
-        el.style.borderColor = isLoans ? "var(--amber)" : "var(--blue)";
-        el.style.boxShadow = isLoans
-          ? "0 10px 36px rgba(0,0,0,0.09), 0 0 40px rgba(217,119,6,0.10)"
-          : "0 10px 36px rgba(0,0,0,0.09), 0 0 40px rgba(37,99,235,0.10)";
+        el.style.borderColor = c.accent;
+        el.style.boxShadow = `0 10px 36px rgba(0,0,0,0.09), 0 0 40px ${c.shadow}`;
       }}
       onMouseLeave={(e) => {
         const el = e.currentTarget;
@@ -384,26 +420,20 @@ function TypeCard({ type, onClick }: { type: UploadType; onClick: () => void }) 
         className="w-12 h-12 rounded-[14px] flex items-center justify-center"
         style={{ background: "var(--s3)", border: "1px solid var(--border-md)" }}
       >
-        {isLoans ? (
-          <Briefcase size={22} style={{ color: "var(--amber)" }} />
-        ) : (
-          <ShieldCheck size={22} style={{ color: "var(--blue)" }} />
-        )}
+        {c.icon}
       </div>
       <div>
         <div
           className="font-display font-bold text-[20px]"
           style={{ color: "var(--text-1)" }}
         >
-          {isLoans ? "Loans" : "Insurance"}
+          {c.title}
         </div>
         <div
           className="text-[13px] mt-1 leading-[1.55]"
           style={{ color: "var(--text-2)" }}
         >
-          {isLoans
-            ? "Import loan leads and applications for the loans pipeline."
-            : "Import insurance prospects and policy holders."}
+          {c.desc}
         </div>
       </div>
       <div
@@ -599,7 +629,7 @@ interface MappingStepProps {
   uploadType: UploadType;
   columns: string[];
   mappings: Mappings;
-  onChange: (key: FieldKey, val: string | undefined) => void;
+  onChange: (key: string, val: string | undefined) => void;
   onBack: () => void;
   onNext: () => void;
 }
@@ -607,7 +637,8 @@ interface MappingStepProps {
 function MappingStep({
   uploadType, columns, mappings, onChange, onBack, onNext,
 }: MappingStepProps) {
-  const canProceed = FIELDS.filter((f) => f.required && !f.auto).every(
+  const fields = getActiveFields(uploadType);
+  const canProceed = fields.filter((f) => f.required && !f.auto).every(
     (f) => mappings[f.key]
   );
 
@@ -654,7 +685,7 @@ function MappingStep({
         </div>
 
         <div className="flex flex-col gap-2.5">
-          {FIELDS.map((f) => (
+          {fields.map((f) => (
             <div
               key={f.key}
               className="grid gap-3 items-center max-sm:flex max-sm:flex-col"
@@ -754,8 +785,9 @@ interface ConfirmStepProps {
 function ConfirmStep({
   uploadType, file, rows, mappings, onBack, onConfirm,
 }: ConfirmStepProps) {
-  const mappedCount = FIELDS.filter((f) => !f.auto && mappings[f.key]).length;
-  const totalFields = FIELDS.filter((f) => !f.auto).length;
+  const fields = getActiveFields(uploadType);
+  const mappedCount = fields.filter((f) => !f.auto && mappings[f.key]).length;
+  const totalFields = fields.filter((f) => !f.auto).length;
 
   return (
     <div className="flex flex-col flex-1 w-full max-w-[860px] mx-auto px-6 pb-20 fade-in">
@@ -852,12 +884,12 @@ function ConfirmStep({
         >
           Field Mappings
         </div>
-        {FIELDS.map((f, i) => (
+        {fields.map((f, i) => (
           <div
             key={f.key}
             className="flex items-center gap-2.5 py-2.5 text-[13px]"
             style={{
-              borderBottom: i < FIELDS.length - 1 ? "1px solid var(--border)" : "none",
+              borderBottom: i < fields.length - 1 ? "1px solid var(--border)" : "none",
             }}
           >
             <div className="w-[200px] shrink-0" style={{ color: "var(--text-2)" }}>
@@ -1073,7 +1105,7 @@ export default function UploaderApp() {
           const cols = meta.fields || [];
           setColumns(cols);
           setRows(data);
-          setMappings(autoSuggest(cols));
+          setMappings(autoSuggest(cols, getActiveFields(uploadType!)));
           setStep(3);
         },
         error: () => alert("Could not parse CSV. Please check the file and try again."),
@@ -1098,7 +1130,7 @@ export default function UploaderApp() {
             .filter((r) => Object.values(r).some((v) => v !== ""));
           setColumns(hdrs);
           setRows(data);
-          setMappings(autoSuggest(hdrs));
+          setMappings(autoSuggest(hdrs, getActiveFields(uploadType!)));
           setStep(3);
         } catch {
           alert("Could not parse Excel file. Please check and try again.");
@@ -1108,7 +1140,7 @@ export default function UploaderApp() {
     }
   };
 
-  const handleMappingChange = (key: FieldKey, val: string | undefined) => {
+  const handleMappingChange = (key: string, val: string | undefined) => {
     setMappings((prev) => ({ ...prev, [key]: val }));
   };
 
@@ -1116,16 +1148,18 @@ export default function UploaderApp() {
     setStep(5);
     setUploadStatus("uploading");
     try {
+      const isContacts = uploadType === "contacts";
+      const activeFields = getActiveFields(uploadType!);
       const records = rows.map((row) => {
         const rec: Record<string, unknown> = {};
-        FIELDS.forEach((f) => {
+        activeFields.forEach((f) => {
           if (f.auto) {
             rec[f.key] = uploadType;
           } else if (mappings[f.key]) {
             const raw = String(row[mappings[f.key]!] ?? "");
             rec[f.key] =
-              f.key === "stage_progress"
-                ? normalizeStage(raw, uploadType!)
+              !isContacts && f.key === "stage_progress"
+                ? normalizeStage(raw, uploadType as DealUploadType)
                 : raw;
           }
         });
@@ -1139,17 +1173,17 @@ export default function UploaderApp() {
         records,
       };
 
-      // text/plain avoids the CORS preflight that application/json triggers.
-      // Zapier catch hooks don't respond to OPTIONS, so the browser blocks
-      // preflight requests. Zapier still receives and parses the JSON body.
-      const res = await fetch(WEBHOOK_URL, {
+      const res = await fetch("/api/upload", {
         method:  "POST",
-        headers: { "Content-Type": "text/plain" },
+        headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(payload),
       });
 
-      // Zapier returns 200 for success; non-OK still gets flagged.
-      if (!res.ok) throw new Error(`Webhook responded with status ${res.status}`);
+      if (res.status === 401) throw new Error("Session expired. Please refresh and log in again.");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Upload failed with status ${res.status}`);
+      }
       setUploadStatus("success");
     } catch (err) {
       setUploadStatus("error");
