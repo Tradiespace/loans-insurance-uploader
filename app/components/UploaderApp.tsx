@@ -47,9 +47,11 @@ const CONTACT_FIELDS = [
 type AnyField = { key: string; label: string; required: boolean; auto: boolean; aliases?: readonly string[]; noAutoSuggest?: boolean };
 type UploadType  = "loans" | "insurance" | "contacts";
 type DealUploadType = "loans" | "insurance";
-type UploadStatus = "idle" | "uploading" | "success" | "error";
-type Mappings    = Partial<Record<string, string>>;
-type DataRow     = Record<string, unknown>;
+type UploadStatus   = "idle" | "uploading" | "success" | "error";
+type UploadProgress = { stage: "hubspot" | "beehiiv"; processed: number; total: number } | null;
+type UploadWaiting  = { source: "hubspot" | "beehiiv"; seconds: number } | null;
+type Mappings       = Partial<Record<string, string>>;
+type DataRow        = Record<string, unknown>;
 
 function getActiveFields(uploadType: UploadType): readonly AnyField[] {
   return uploadType === "contacts" ? CONTACT_FIELDS : FIELDS;
@@ -942,13 +944,20 @@ function ConfirmStep({
 ══════════════════════════════════════════════════════════ */
 interface StatusStepProps {
   status: UploadStatus;
+  uploadProgress: UploadProgress;
+  uploadWaiting: UploadWaiting;
   error: string | null;
   recordCount: number;
   uploadType: UploadType;
   onReset: () => void;
 }
 
-function StatusStep({ status, error, recordCount, uploadType, onReset }: StatusStepProps) {
+function StatusStep({ status, uploadProgress, uploadWaiting, error, recordCount, uploadType, onReset }: StatusStepProps) {
+  const isContacts  = uploadType === "contacts";
+  const progressPct = uploadProgress
+    ? Math.round((uploadProgress.processed / uploadProgress.total) * 100)
+    : 0;
+
   return (
     <div className="flex items-center justify-center flex-1 min-h-screen px-6 pb-20 fade-in">
       <div className="text-center max-w-[440px]">
@@ -958,16 +967,16 @@ function StatusStep({ status, error, recordCount, uploadType, onReset }: StatusS
             <div
               className="w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6"
               style={{
-                background: "var(--amber-lo)",
-                border: "2px solid var(--amber-md)",
-                animation: "pulse-ring 1.6s ease-in-out infinite",
+                background: isContacts ? "var(--green-lo)" : "var(--amber-lo)",
+                border:     `2px solid ${isContacts ? "var(--green-md)" : "var(--amber-md)"}`,
+                animation:  "pulse-ring 1.6s ease-in-out infinite",
               }}
             >
               <div
                 style={{
                   width: 40, height: 40,
-                  border: "3px solid var(--amber-md)",
-                  borderTopColor: "var(--amber)",
+                  border: `3px solid ${isContacts ? "var(--green-md)" : "var(--amber-md)"}`,
+                  borderTopColor: isContacts ? "var(--green)" : "var(--amber)",
                   borderRadius: "50%",
                   animation: "spin 0.75s linear infinite",
                 }}
@@ -977,25 +986,68 @@ function StatusStep({ status, error, recordCount, uploadType, onReset }: StatusS
               className="font-display font-bold text-[24px]"
               style={{ color: "var(--text-1)" }}
             >
-              Uploading data…
+              {isContacts ? "Processing contacts…" : "Uploading data…"}
             </h2>
-            <p className="text-[14px] mt-2.5 leading-relaxed" style={{ color: "var(--text-2)" }}>
-              Sending {recordCount.toLocaleString()} records to Tradiespace.
-              <br />
-              Please don&apos;t close this tab.
-            </p>
-            <div
-              className="h-1 rounded-full overflow-hidden mt-5 max-w-[320px] mx-auto"
-              style={{ background: "var(--s3)" }}
-            >
-              <div
-                className="h-full rounded-full"
-                style={{
-                  background: "linear-gradient(90deg, var(--amber), var(--amber-hi))",
-                  animation: "progress-fill 2.5s ease forwards",
-                }}
-              />
-            </div>
+
+            {isContacts ? (
+              <>
+                {/* Stage label or waiting message */}
+                {uploadWaiting ? (
+                  <p className="text-[14px] mt-2.5 leading-relaxed" style={{ color: "var(--amber)" }}>
+                    Rate limited by {uploadWaiting.source === "hubspot" ? "HubSpot" : "Beehiiv"} — resuming in ~{uploadWaiting.seconds}s
+                  </p>
+                ) : (
+                  <p className="text-[14px] mt-2.5 leading-relaxed" style={{ color: "var(--text-2)" }}>
+                    {uploadProgress
+                      ? uploadProgress.stage === "hubspot"
+                        ? <>Updating HubSpot &mdash; {uploadProgress.processed.toLocaleString()} of {uploadProgress.total.toLocaleString()} contacts</>
+                        : <>Syncing Beehiiv &mdash; {uploadProgress.processed.toLocaleString()} of {uploadProgress.total.toLocaleString()} contacts</>
+                      : "Preparing…"}
+                  </p>
+                )}
+
+                {/* Progress bar — stays at last known position during a wait */}
+                <div
+                  className="h-1.5 rounded-full overflow-hidden mt-5 max-w-[320px] mx-auto"
+                  style={{ background: "var(--s3)" }}
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${progressPct}%`,
+                      background: uploadProgress?.stage === "beehiiv"
+                        ? "linear-gradient(90deg, var(--green), #34d399)"
+                        : "linear-gradient(90deg, var(--amber), var(--amber-hi))",
+                      transition: "width 0.4s ease, background 0.4s ease",
+                      opacity: uploadWaiting ? 0.5 : 1,
+                    }}
+                  />
+                </div>
+                <p className="text-[11px] mt-2" style={{ color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
+                  {progressPct}%{uploadWaiting ? " · paused" : ""}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-[14px] mt-2.5 leading-relaxed" style={{ color: "var(--text-2)" }}>
+                  Sending {recordCount.toLocaleString()} records to Tradiespace.
+                  <br />
+                  Please don&apos;t close this tab.
+                </p>
+                <div
+                  className="h-1 rounded-full overflow-hidden mt-5 max-w-[320px] mx-auto"
+                  style={{ background: "var(--s3)" }}
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      background: "linear-gradient(90deg, var(--amber), var(--amber-hi))",
+                      animation: "progress-fill 2.5s ease forwards",
+                    }}
+                  />
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -1014,8 +1066,10 @@ function StatusStep({ status, error, recordCount, uploadType, onReset }: StatusS
               Upload successful!
             </h2>
             <p className="text-[14px] mt-2.5 leading-relaxed" style={{ color: "var(--text-2)" }}>
-              {recordCount.toLocaleString()} {uploadType} records have been sent to Zapier and
-              will be processed shortly.
+              {isContacts
+                ? <>{recordCount.toLocaleString()} contacts updated in HubSpot and synced to Beehiiv.</>
+                : <>{recordCount.toLocaleString()} {uploadType} records have been sent to Zapier and will be processed shortly.</>
+              }
             </p>
             <div className="flex justify-center mt-7">
               <Btn variant="secondary" onClick={onReset}>
@@ -1078,8 +1132,10 @@ export default function UploaderApp() {
   const [columns,      setColumns]      = useState<string[]>([]);
   const [rows,         setRows]         = useState<DataRow[]>([]);
   const [mappings,     setMappings]     = useState<Mappings>({});
-  const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
-  const [uploadError,  setUploadError]  = useState<string | null>(null);
+  const [uploadStatus,   setUploadStatus]   = useState<UploadStatus>("idle");
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress>(null);
+  const [uploadWaiting,  setUploadWaiting]  = useState<UploadWaiting>(null);
+  const [uploadError,    setUploadError]    = useState<string | null>(null);
 
   const handleFile = (f: File | null) => {
     setFile(f);
@@ -1147,10 +1203,11 @@ export default function UploaderApp() {
   const handleConfirm = async () => {
     setStep(5);
     setUploadStatus("uploading");
+    setUploadProgress(null);
     try {
-      const isContacts = uploadType === "contacts";
+      const isContacts   = uploadType === "contacts";
       const activeFields = getActiveFields(uploadType!);
-      const records = rows.map((row) => {
+      const records      = rows.map((row) => {
         const rec: Record<string, unknown> = {};
         activeFields.forEach((f) => {
           if (f.auto) {
@@ -1180,11 +1237,44 @@ export default function UploaderApp() {
       });
 
       if (res.status === 401) throw new Error("Session expired. Please refresh and log in again.");
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Upload failed with status ${res.status}`);
+
+      if (isContacts) {
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}));
+          throw new Error(b.error || `Upload failed with status ${res.status}`);
+        }
+        const reader  = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer    = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const event = JSON.parse(line);
+            if (event.stage === "error") {
+              throw new Error(event.message);
+            } else if (event.stage === "done") {
+              setUploadWaiting(null);
+              setUploadStatus("success");
+            } else if (event.stage === "waiting") {
+              setUploadWaiting({ source: event.source, seconds: event.seconds });
+            } else {
+              setUploadWaiting(null);
+              setUploadProgress({ stage: event.stage, processed: event.processed, total: event.total });
+            }
+          }
+        }
+      } else {
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}));
+          throw new Error(b.error || `Upload failed with status ${res.status}`);
+        }
+        setUploadStatus("success");
       }
-      setUploadStatus("success");
     } catch (err) {
       setUploadStatus("error");
       setUploadError(err instanceof Error ? err.message : "Unknown error");
@@ -1194,7 +1284,7 @@ export default function UploaderApp() {
   const handleReset = () => {
     setStep(1); setUploadType(null); setFile(null);
     setColumns([]); setRows([]); setMappings({});
-    setUploadStatus("idle"); setUploadError(null);
+    setUploadStatus("idle"); setUploadProgress(null); setUploadWaiting(null); setUploadError(null);
   };
 
   return (
@@ -1236,6 +1326,8 @@ export default function UploaderApp() {
       {step === 5 && uploadType && (
         <StatusStep
           status={uploadStatus}
+          uploadProgress={uploadProgress}
+          uploadWaiting={uploadWaiting}
           error={uploadError}
           recordCount={rows.length}
           uploadType={uploadType}
